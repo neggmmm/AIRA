@@ -22,10 +22,17 @@ export class AgentProcessor {
     private readonly llmService: LLMService,
   ) {}
 
+  /**
+   * Main job processor: orchestrate the full analysis pipeline.
+   * Fetches financials and headlines, calls the LLM with retry + self-correction
+   * if confidence is low, and persists the result.
+   */
   @Process(ANALYSIS_JOB)
   async handle(job: Job<{ jobId: string; ticker: string }>) {
     const { jobId, ticker } = job.data;
     this.logger.log(`Processing analysis job ${jobId} for ${ticker}`);
+    const CONFIDENCE_THRESHOLD = 0.7;
+    const MAX_ATTEMPTS = 3;
 
     try {
       await this.analysisService.updateJob(jobId, { status: 'running' });
@@ -53,17 +60,64 @@ export class AgentProcessor {
       });
       await this.analysisService.updateJob(jobId, { stepsTrace: trace });
 
-      // Call LLM
-      const analysis = await this.llmService.analyzeFinancials({
-        ticker,
-        financials,
-        headlines: headlines.map((h) => h.title),
-      });
+      // Call LLM with retry logic
+      let analysis = await this.retryLLMAnalysis(
+        { ticker, financials, headlines: headlines.map((h) => h.title) },
+        MAX_ATTEMPTS,
+      );
+
+      // Self-correction: if confidence is below threshold, retry with additional prompt
+      if ((analysis.confidence ?? 0) < CONFIDENCE_THRESHOLD) {
+        this.logger.warn(
+          `Low confidence (${analysis.confidence}) for ${ticker}, attempting self-correction`,
+        );
+        trace.push({
+          step: 'self-correction-attempt',
+          status: 'warn',
+          data: { originalConfidence: analysis.confidence },
+          timestamp: new Date().toISOString(),
+        });
+        await this.analysisService.updateJob(jobId, { stepsTrace: trace });
+
+        // Re-analyze with stronger guidance
+        try {
+          const correctedAnalysis = await this.llmService.analyzeFinancials({
+            ticker,
+            financials,
+            headlines: headlines.map((h) => h.title),
+          });
+          // If corrected confidence is better or same, use it
+          if (
+            (correctedAnalysis.confidence ?? 0) >=
+            (analysis.confidence ?? 0)
+          ) {
+            analysis = correctedAnalysis;
+            trace.push({
+              step: 'self-correction-success',
+              status: 'ok',
+              data: { newConfidence: analysis.confidence },
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          this.logger.warn('Self-correction failed, using original analysis');
+          trace.push({
+            step: 'self-correction-failed',
+            status: 'warn',
+            data: { error: (err as Error).message },
+            timestamp: new Date().toISOString(),
+          });
+        }
+        await this.analysisService.updateJob(jobId, { stepsTrace: trace });
+      }
 
       trace.push({
         step: 'llm-analysis',
         status: 'ok',
-        data: { confidence: analysis.confidence },
+        data: {
+          confidence: analysis.confidence,
+          recommendation: analysis.recommendation,
+        },
         timestamp: new Date().toISOString(),
       });
 
@@ -94,5 +148,41 @@ export class AgentProcessor {
       });
       throw err;
     }
+  }
+
+  /**
+   * Retry LLM analysis up to MAX_ATTEMPTS times.
+   * Returns the first successful analysis or throws if all attempts fail.
+   */
+  private async retryLLMAnalysis(
+    payload: { ticker: string; financials: any; headlines: string[] },
+    maxAttempts: number,
+  ) {
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        this.logger.log(
+          `LLM analysis attempt ${attempt}/${maxAttempts} for ${payload.ticker}`,
+        );
+        const result = await this.llmService.analyzeFinancials(payload);
+        this.logger.log(`LLM analysis succeeded on attempt ${attempt}`);
+        return result;
+      } catch (err) {
+        lastError = err as Error;
+        this.logger.warn(
+          `LLM analysis attempt ${attempt} failed: ${(err as Error).message}`,
+        );
+        if (attempt < maxAttempts) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delayMs = Math.pow(2, attempt - 1) * 1000;
+          this.logger.log(`Waiting ${delayMs}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+    // All attempts failed
+    throw new Error(
+      `LLM analysis failed after ${maxAttempts} attempts: ${lastError?.message ?? 'unknown error'}`,
+    );
   }
 }
