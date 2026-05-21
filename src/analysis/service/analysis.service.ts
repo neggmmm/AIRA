@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { AnalysisJob } from './entities/analysis-job.entity';
+import { AnalysisJob } from '../entities/analysis-job.entity';
 
 export const ANALYSIS_QUEUE = 'analysis';
 export const ANALYSIS_JOB = 'run-analysis';

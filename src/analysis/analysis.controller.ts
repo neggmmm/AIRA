@@ -7,7 +7,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { AnalysisService } from './analysis.service';
+import { AnalysisService } from './service/analysis.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 
 @Controller('analysis')
@@ -66,7 +66,6 @@ export class AnalysisController {
         errorMessage: job.errorMessage,
       };
     }
-
     // completed — return the full report
     return job.result;
   }
