@@ -5,6 +5,7 @@ import { AnalysisController } from './analysis.controller';
 import { AnalysisService, ANALYSIS_QUEUE } from './service/analysis.service';
 import { AnalysisJob } from './entities/analysis-job.entity';
 import { NewsService } from './service/news.service';
+import { FinancialsService } from './service/financials.service';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { NewsService } from './service/news.service';
     BullModule.registerQueue({ name: ANALYSIS_QUEUE }),
   ],
   controllers: [AnalysisController],
-  providers: [AnalysisService, NewsService],
-  exports: [AnalysisService, NewsService],
+  providers: [AnalysisService, NewsService, FinancialsService],
+  exports: [AnalysisService, NewsService, FinancialsService],
 })
 export class AnalysisModule {}
