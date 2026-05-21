@@ -54,7 +54,7 @@ You can test the API directly without cloning the project.
 ### 1. Clone & Install
 
 ```bash
-git clone <repo>
+git clone https://github.com/neggmmm/AIRA.git
 cd AIRA
 npm install
 ```
