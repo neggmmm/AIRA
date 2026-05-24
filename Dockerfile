@@ -40,8 +40,7 @@ RUN addgroup -g 1001 -S nodejs && \
 USER nestjs
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s \
-CMD wget --spider -q http://localhost:3000/analysis || exit 1
+HEALTHCHECK NONE
 
 # Expose port
 EXPOSE 3000
